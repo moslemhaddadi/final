@@ -4,14 +4,16 @@ pipeline {
     agent {
         docker {
             image 'maven:3.8-openjdk-17' 
-            // CORRECTION FINALE : Utilisation de 'args' pour passer l'option --user 0:0
+            // CORRECTION : Utilisation de 'args' pour passer l'option --user 0:0
             args '--user 0:0 -v /var/run/docker.sock:/var/run/docker.sock -v maven-cache:/root/.m2'
         }
     }
 
+    // CORRECTION : Restauration du bloc environment
     environment {
-        SONAR_TOKEN_ID = 'sonarqube-auth-token'
-$    }
+        SONAR_TOKEN_ID = 'sonar-token'
+        DOCKER_IMAGE_NAME = "votre-nom-user/mon-app-final"
+    }
 
     stages {
         stage('1. Préparation') {
@@ -25,7 +27,7 @@ $    }
             parallel {
                 stage('Build, Test & SAST (SonarQube)') {
                     steps {
-                        withSonarQubeEnv('MySonarQubeServer') {
+                        withSonarQubeEnv('sonar-server') {
                             sh 'mvn clean package sonar:sonar -Dsonar.projectKey=mon-projet-final -Dsonar.login=${SONAR_TOKEN_ID}'
                         }
                     }
