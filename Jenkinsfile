@@ -1,31 +1,24 @@
-// Jenkinsfile - VERSION CORRIGÉE AVEC withSonarQubeEnv
+// Jenkinsfile - VERSION CORRIGÉE AVEC LE BON NOM DE SERVEUR SONARQUBE
 pipeline {
     agent any
-
-    // Le bloc 'environment' pour Sonar a été retiré.
-    // 'withSonarQubeEnv' va gérer la configuration.
 
     stages {
         stage("1. Checkout Code from GitHub") {
             steps {
                 echo "Récupération du code depuis GitHub..."
-                // Note : Ce 'git' est redondant car Jenkins fait déjà un checkout au début.
-                // On peut le garder, mais ce n'est pas strictement nécessaire.
                 git url: "https://github.com/moslemhaddadi/DEVOPS.git", branch: "main"
             }
         }
 
-        // On regroupe les étapes Sonar dans un seul stage pour plus de clarté.
         stage("2. SAST Analysis & Quality Gate" ) {
             steps {
-                // 'SonarQube-Server' est le nom de votre configuration SonarQube
-                // dans "Manage Jenkins > Configure System".
-                withSonarQubeEnv('SonarQube-Server') {
+                // Utilisation du nom correct de la configuration SonarQube : 'MySonarQubeServer'
+                withSonarQubeEnv('MySonarQubeServer') {
                     // 1. Lancer l'analyse
                     echo "Lancement de l'analyse SAST avec SonarQube..."
                     sh "mvn clean verify sonar:sonar"
 
-                    // 2. Attendre le Quality Gate (maintenant dans le même contexte)
+                    // 2. Attendre le Quality Gate
                     echo "Vérification du Quality Gate de SonarQube..."
                     timeout(time: 5, unit: 'MINUTES') {
                         waitForQualityGate abortPipeline: true
@@ -34,7 +27,7 @@ pipeline {
             }
         }
         
-        stage("3. SCA - Trivy Scan") { // L'index des stages a été décalé
+        stage("3. SCA - Trivy Scan") {
             steps {
                 echo "Lancement de l'analyse des dépendances (SCA) avec Trivy..."
                 sh "docker run --rm -v ${env.WORKSPACE}:/path aquasec/trivy:latest fs --format table -o trivy-fs-report.html /path"
