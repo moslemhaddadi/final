@@ -1,13 +1,11 @@
-// Jenkinsfile - Version Corrigée (avec agent root)
+// Jenkinsfile - Version Finale, Optimisée et Corrigée
 
 pipeline {
     agent {
         docker {
-            // CORRECTION MAJEURE : Ajout de 'user: 0:0' pour forcer l'exécution en tant que root.
-            // Cela résout le problème de "Permission denied" sur les fichiers du workspace.
             image 'maven:3.8-openjdk-17' 
-            user '0:0' 
-            args '-v /var/run/docker.sock:/var/run/docker.sock -v maven-cache:/root/.m2'
+            // CORRECTION FINALE : Utilisation de 'args' pour passer l'option --user 0:0
+            args '--user 0:0 -v /var/run/docker.sock:/var/run/docker.sock -v maven-cache:/root/.m2'
         }
     }
 
@@ -35,8 +33,6 @@ pipeline {
                 }
                 stage('Analyse des dépendances (Trivy FS)') {
                     steps {
-                        // CORRECTION : Utilisation de 'docker run' pour Trivy, car le client n'est pas dans l'image Maven.
-                        // On monte le workspace dans le conteneur Trivy.
                         sh "docker run --rm -v ${env.WORKSPACE}:/app aquasec/trivy:latest fs --severity HIGH,CRITICAL --exit-code 0 /app > trivy-fs-report.txt"
                     }
                 }
@@ -54,16 +50,13 @@ pipeline {
         stage('4. Build & Scan de l\'image Docker') {
             steps {
                 script {
-                    // Le client Docker est maintenant accessible car nous avons monté le socket Docker
                     def dockerImage = docker.build("${DOCKER_IMAGE_NAME}:${env.BUILD_NUMBER}", ".")
                     
-                    // Scan de l'image construite
                     sh "docker run --rm -v ${env.WORKSPACE}:/app aquasec/trivy:latest image --severity HIGH,CRITICAL --exit-code 1 ${DOCKER_IMAGE_NAME}:${env.BUILD_NUMBER} > trivy-image-report.txt"
                 }
             }
         }
 
-        // ... Le reste des étapes (5 et 6) ...
         stage('5. Déploiement pour le test DAST') {
             steps {
                 script {
