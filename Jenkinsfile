@@ -4,28 +4,32 @@ pipeline {
     agent {
         docker {
             image 'maven:3.8-openjdk-17' 
-            // CORRECTION : Utilisation de 'args' pour passer l'option --user 0:0
             args '--user 0:0 -v /var/run/docker.sock:/var/run/docker.sock -v maven-cache:/root/.m2'
         }
     }
 
-    // CORRECTION : Restauration du bloc environment
     environment {
-        SONAR_TOKEN_ID = 'sonarqube-auth-token'
+        // CORRECTION : Nom du token plus explicite.
+        // Assurez-vous que l'ID de votre secret dans Jenkins est EXACTEMENT 'SONAR_AUTH_TOKEN'
+        SONAR_TOKEN_ID = 'SONAR_AUTH_TOKEN' 
+        DOCKER_IMAGE_NAME = "votre-nom-user/mon-app-final"
     }
 
     stages {
         stage('1. Préparation') {
             steps {
                 cleanWs()
-                git branch: 'main', url: 'https://github.com/moslemhaddadi/final.git'
+                // Utilisation de 'checkout scm' pour garantir que le code est à la racine du workspace
+                checkout scm
             }
         }
 
-        stage('2. Analyse Statique (SAST & SCA )') {
+        stage('2. Analyse Statique (SAST & SCA)') {
             parallel {
                 stage('Build, Test & SAST (SonarQube)') {
                     steps {
+                        // CORRECTION : Nom du serveur plus explicite.
+                        // Assurez-vous que le nom de votre serveur dans Jenkins est EXACTEMENT 'MySonarQubeServer'
                         withSonarQubeEnv('MySonarQubeServer') {
                             sh 'mvn clean package sonar:sonar -Dsonar.projectKey=mon-projet-final -Dsonar.login=${SONAR_TOKEN_ID}'
                         }
