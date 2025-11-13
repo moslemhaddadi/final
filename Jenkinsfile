@@ -1,4 +1,4 @@
-// Jenkinsfile - VERSION CORRIGÉE AVEC LE BON NOM DE SERVEUR SONARQUBE
+// Jenkinsfile - VERSION FINALE CORRIGÉE
 pipeline {
     agent any
 
@@ -12,15 +12,14 @@ pipeline {
 
         stage("2. SAST Analysis & Quality Gate" ) {
             steps {
-                // Utilisation du nom correct de la configuration SonarQube : 'MySonarQubeServer'
                 withSonarQubeEnv('MySonarQubeServer') {
-                    // 1. Lancer l'analyse
+                    // 1. Lancer l'analyse en forçant la clé de projet attendue par Jenkins
                     echo "Lancement de l'analyse SAST avec SonarQube..."
-                    sh "mvn clean verify sonar:sonar"
+                    sh "mvn clean verify sonar:sonar -Dsonar.projectKey=${env.SONAR_PROJECT_KEY}"
 
                     // 2. Attendre le Quality Gate
                     echo "Vérification du Quality Gate de SonarQube..."
-                    timeout(time: 5, unit: 'MINUTES') {
+                    timeout(time: 2, unit: 'MINUTES') {
                         waitForQualityGate abortPipeline: true
                     }
                 }
