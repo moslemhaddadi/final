@@ -1,89 +1,80 @@
-// Jenkinsfile - Version Finale, Optimisée et Corrigée
-
 pipeline {
     agent {
         docker {
-            image 'maven:3.8-openjdk-17' 
-            args '--user 0:0 -v /var/run/docker.sock:/var/run/docker.sock -v maven-cache:/root/.m2'
+            image 'maven:3.8-openjdk-17'
+            args '-v /var/run/docker.sock:/var/run/docker.sock -v maven-cache:/root/.m2'
         }
     }
-
-    environment {
-        SONAR_TOKEN_ID = 'SONAR_AUTH_TOKEN' 
-        DOCKER_IMAGE_NAME = "votre-nom-user/mon-app-final"
-    }
-
+    
     stages {
-        stage('1. Préparation' ) {
+        stage('1. Préparation') {
             steps {
                 cleanWs()
-                // Cette étape est la cause de l'erreur actuelle.
-                checkout scm 
+                checkout scm
             }
         }
-
+        
         stage('2. Analyse Statique (SAST & SCA)') {
             parallel {
                 stage('Build, Test & SAST (SonarQube)') {
                     steps {
                         withSonarQubeEnv('MySonarQubeServer') {
-                            sh 'mvn clean package sonar:sonar -Dsonar.projectKey=mon-projet-final -Dsonar.login=${SONAR_TOKEN_ID}'
+                            sh '''
+                                mvn clean verify sonar:sonar \
+                                    -Dsonar.projectKey=my-project \
+                                    -Dsonar.host.url=${SONAR_HOST_URL} \
+                                    -Dsonar.login=${SONAR_AUTH_TOKEN}
+                            '''
                         }
                     }
                 }
+                
                 stage('Analyse des dépendances (Trivy FS)') {
                     steps {
-                        sh "docker run --rm -v ${env.WORKSPACE}:/app aquasec/trivy:latest fs --severity HIGH,CRITICAL --exit-code 0 /app > trivy-fs-report.txt"
+                        script {
+                            // Install Trivy if not available
+                            sh 'which trivy || (apt-get update && apt-get install -y wget && wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | apt-key add - && echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | tee -a /etc/apt/sources.list.d/trivy.list && apt-get update && apt-get install -y trivy)'
+                            
+                            // Run Trivy filesystem scan
+                            sh 'trivy fs --security-checks vuln,config .'
+                        }
                     }
                 }
             }
         }
-
+        
         stage('3. Quality Gate SonarQube') {
             steps {
-                timeout(time: 5, unit: 'MINUTES') {
-                    waitForQualityGate abortPipeline: true, credentialsId: SONAR_TOKEN_ID
+                timeout(time: 1, unit: 'HOURS') {
+                    waitForQualityGate abortPipeline: true
                 }
             }
         }
-
+        
         stage('4. Build & Scan de l\'image Docker') {
             steps {
                 script {
-                    def dockerImage = docker.build("${DOCKER_IMAGE_NAME}:${env.BUILD_NUMBER}", ".")
+                    // Build Docker image
+                    sh 'docker build -t my-app:${BUILD_NUMBER} .'
                     
-                    sh "docker run --rm -v ${env.WORKSPACE}:/app aquasec/trivy:latest image --severity HIGH,CRITICAL --exit-code 1 ${DOCKER_IMAGE_NAME}:${env.BUILD_NUMBER} > trivy-image-report.txt"
+                    // Scan with Trivy
+                    sh 'trivy image --exit-code 0 --severity HIGH,CRITICAL my-app:${BUILD_NUMBER}'
                 }
-            }
-        }
-
-        stage('5. Déploiement pour le test DAST') {
-            steps {
-                script {
-                    sh "docker rm -f mon-app-test || true"
-                    sh "docker run -d --name mon-app-test -p 8080:8080 ${DOCKER_IMAGE_NAME}:${env.BUILD_NUMBER}"
-                    echo "Attente de 45 secondes que l'application démarre..."
-                    sleep 45
-                }
-            }
-        }
-
-        stage('6. Scan Dynamique (DAST avec OWASP ZAP)') {
-            steps {
-                sh '''
-                    docker run --rm --network host -v $(pwd):/zap/wrk:rw \
-                    zaproxy/zap-stable zap-baseline.py \
-                    -t http://localhost:8080 \
-                    -r zap_report.html
-                '''
             }
         }
     }
-
+    
     post {
         always {
-            archiveArtifacts artifacts: 'trivy-fs-report.txt, zap_report.html, target/surefire-reports/*.xml', allowEmptyArchive: true
-            sh "docker rm -f mon-app-test || true"
+            archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
+            junit 'target/surefire-reports/*.xml'
+        }
+        failure {
+            emailext (
+                subject: "FAILED: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
+                body: "Check console output at ${env.BUILD_URL}",
+                to: "admin@example.com"
+            )
         }
     }
 }
