@@ -27,16 +27,7 @@ pipeline {
     }
 }
 
-       /* stage('Static Analysis') {
-            steps {
-                dir("${WORKSPACE}") {
-                    sh '''
-                    semgrep --config auto . --json > $REPORT_DIR/semgrep-report.json
-                    '''
-                }
-            }
-        }
-*/ 
+  
         stage('Vulnerability Scan') {
             steps {
                 dir("${WORKSPACE}") {
