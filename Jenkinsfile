@@ -94,7 +94,7 @@ pipeline {
     post {
         always {
             archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, allowEmptyArchive: true
-            junit 'target/surefire-reports/*.xml', allowEmptyResults: true
+            junit testResults: 'target/surefire-reports/*.xml', allowEmptyResults: true
             
             // Nettoyage des conteneurs
             sh '''
