@@ -9,18 +9,16 @@ pipeline {
     }
 
     environment {
-        // CORRECTION : Nom du token plus explicite.
-        // Assurez-vous que l'ID de votre secret dans Jenkins est EXACTEMENT 'SONAR_AUTH_TOKEN'
         SONAR_TOKEN_ID = 'SONAR_AUTH_TOKEN' 
         DOCKER_IMAGE_NAME = "votre-nom-user/mon-app-final"
     }
 
     stages {
-        stage('1. Préparation') {
+        stage('1. Préparation' ) {
             steps {
                 cleanWs()
-                // Utilisation de 'checkout scm' pour garantir que le code est à la racine du workspace
-                checkout scm
+                // Cette étape est la cause de l'erreur actuelle.
+                checkout scm 
             }
         }
 
@@ -28,8 +26,6 @@ pipeline {
             parallel {
                 stage('Build, Test & SAST (SonarQube)') {
                     steps {
-                        // CORRECTION : Nom du serveur plus explicite.
-                        // Assurez-vous que le nom de votre serveur dans Jenkins est EXACTEMENT 'MySonarQubeServer'
                         withSonarQubeEnv('MySonarQubeServer') {
                             sh 'mvn clean package sonar:sonar -Dsonar.projectKey=mon-projet-final -Dsonar.login=${SONAR_TOKEN_ID}'
                         }
