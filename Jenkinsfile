@@ -22,13 +22,11 @@ pipeline {
             }
         }
 
-        stage('Build Docker Image') {
-            steps {
-                dir("${WORKSPACE}") {
-                    sh 'docker build -t devsecops-app .'
-                }
-            }
-        }
+      stage('Build Docker Image') {
+    steps {
+        sh 'docker build -t devsecops-app -f src/Dockerfile .'
+    }
+}
 
        /* stage('Static Analysis') {
             steps {
