@@ -1,43 +1,40 @@
-// Jenkinsfile - VERSION CORRIGÉE (sans les blocs 'node' dans 'post')
+// Jenkinsfile - VERSION CORRIGÉE AVEC withSonarQubeEnv
 pipeline {
     agent any
 
-    environment {
-        SONAR_PROJECT_KEY = "mon-projet-devops"
-        SONAR_HOST_URL = "http://localhost:9000"
-        SONAR_LOGIN = credentials('sonarqube-auth-token' ) 
-    }
+    // Le bloc 'environment' pour Sonar a été retiré.
+    // 'withSonarQubeEnv' va gérer la configuration.
 
     stages {
         stage("1. Checkout Code from GitHub") {
             steps {
                 echo "Récupération du code depuis GitHub..."
+                // Note : Ce 'git' est redondant car Jenkins fait déjà un checkout au début.
+                // On peut le garder, mais ce n'est pas strictement nécessaire.
                 git url: "https://github.com/moslemhaddadi/DEVOPS.git", branch: "main"
             }
         }
 
-        stage("2. SAST with SonarQube" ) {
+        // On regroupe les étapes Sonar dans un seul stage pour plus de clarté.
+        stage("2. SAST Analysis & Quality Gate" ) {
             steps {
-                echo "Lancement de l'analyse SAST avec SonarQube..."
-                sh """
-                    mvn clean verify sonar:sonar \
-                        -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
-                        -Dsonar.host.url=${SONAR_HOST_URL} \
-                        -Dsonar.login=${SONAR_LOGIN}
-                """
-            }
-        }
+                // 'SonarQube-Server' est le nom de votre configuration SonarQube
+                // dans "Manage Jenkins > Configure System".
+                withSonarQubeEnv('SonarQube-Server') {
+                    // 1. Lancer l'analyse
+                    echo "Lancement de l'analyse SAST avec SonarQube..."
+                    sh "mvn clean verify sonar:sonar"
 
-        stage("3. Quality Gate") {
-            steps {
-                echo "Vérification du Quality Gate de SonarQube..."
-                timeout(time: 5, unit: 'MINUTES') {
-                    waitForQualityGate abortPipeline: true
+                    // 2. Attendre le Quality Gate (maintenant dans le même contexte)
+                    echo "Vérification du Quality Gate de SonarQube..."
+                    timeout(time: 5, unit: 'MINUTES') {
+                        waitForQualityGate abortPipeline: true
+                    }
                 }
             }
         }
         
-        stage("4. SCA - Trivy Scan") {
+        stage("3. SCA - Trivy Scan") { // L'index des stages a été décalé
             steps {
                 echo "Lancement de l'analyse des dépendances (SCA) avec Trivy..."
                 sh "docker run --rm -v ${env.WORKSPACE}:/path aquasec/trivy:latest fs --format table -o trivy-fs-report.html /path"
@@ -45,14 +42,14 @@ pipeline {
             }
         }
         
-        stage("5. Build Docker Image") {
+        stage("4. Build Docker Image") {
             steps {
                 echo "Construction de l'image Docker de l'application..."
                 sh "docker build -t mon-app:latest ."
             }
         }
 
-        stage("6. DAST with OWASP ZAP (Simulation)") {
+        stage("5. DAST with OWASP ZAP (Simulation)") {
             steps {
                 echo "Lancement de l'analyse de sécurité dynamique (DAST)..."
                 sh """
@@ -73,8 +70,6 @@ pipeline {
     }
 
     post {
-        // Le bloc 'node' a été retiré. Ces étapes s'exécuteront
-        // dans le contexte de l'agent défini en haut du pipeline.
         always {
             echo 'Pipeline terminé.'
             cleanWs( )
