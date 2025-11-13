@@ -40,7 +40,7 @@ pipeline {
                 stage('Build, Test & SAST (SonarQube)') {
                     steps {
                         // On configure l'environnement SonarQube
-                        withSonarQubeEnv('sonar-server') { // Assurez-vous que 'sonar-server' est le nom de votre serveur dans Jenkins
+                        withSonarQubeEnv('MySonarQubeServer') { // Assurez-vous que 'sonar-server' est le nom de votre serveur dans Jenkins
                             // Commande Maven unique et efficace pour construire, tester et analyser
                             sh 'mvn clean package sonar:sonar -Dsonar.projectKey=mon-projet-final -Dsonar.login=${SONAR_TOKEN_ID}'
                         }
