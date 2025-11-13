@@ -1,4 +1,4 @@
-// Jenkinsfile - VERSION FINALE ET COMPLÈTE
+// Jenkinsfile - VERSION FINALE ET DÉBOGUÉE
 pipeline {
     agent any
 
@@ -30,8 +30,8 @@ pipeline {
                 // !!! ATTENTION : REMPLACER 'simple-app' par le nom exact de votre sous-dossier si nécessaire !!!
                 dir('simple-app') {
                     echo "Lancement de l'analyse des dépendances (SCA) avec Trivy..."
-                    // Le scan Trivy s'exécute sur le répertoire courant (simple-app)
-                    sh "docker run --rm -v ${env.WORKSPACE}/simple-app:/path aquasec/trivy:latest fs --format table -o trivy-fs-report.html /path"
+                    // Utilisation de $(pwd) pour un montage de volume plus fiable
+                    sh "docker run --rm -v \$(pwd):/path aquasec/trivy:latest fs --format table -o trivy-fs-report.html /path"
                     archiveArtifacts artifacts: 'trivy-fs-report.html', allowEmptyArchive: true
                 }
             }
@@ -56,7 +56,7 @@ pipeline {
                     docker run -d --name app-for-dast simple-app:latest
                     
                     echo "Lancement du scan ZAP..."
-                    docker run --rm -v \${env.WORKSPACE}/simple-app:/zap/wrk/:rw --network host owasp/zap2docker-stable zap-baseline.py \
+                    docker run --rm -v \$(pwd):/zap/wrk/:rw --network host owasp/zap2docker-stable zap-baseline.py \
                         -t http://127.0.0.1:8080 -g gen.conf -r zap-report.html
                     
                     echo "Arrêt du conteneur de l'application..."
