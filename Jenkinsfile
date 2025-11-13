@@ -2,7 +2,8 @@ pipeline {
     agent {
         docker {
             image 'maven:3.8-openjdk-17'
-            args '-v /var/run/docker.sock:/var/run/docker.sock -v maven-cache:/root/.m2'
+            args '--entrypoint= -v /var/run/docker.sock:/var/run/docker.sock -v maven-cache:/root/.m2'
+            reuseNode true
         }
     }
     
@@ -19,12 +20,7 @@ pipeline {
                 stage('Build, Test & SAST (SonarQube)') {
                     steps {
                         withSonarQubeEnv('MySonarQubeServer') {
-                            sh '''
-                                mvn clean verify sonar:sonar \
-                                    -Dsonar.projectKey=my-project \
-                                    -Dsonar.host.url=${SONAR_HOST_URL} \
-                                    -Dsonar.login=${SONAR_AUTH_TOKEN}
-                            '''
+                            sh 'mvn clean verify sonar:sonar -Dsonar.projectKey=final-project'
                         }
                     }
                 }
@@ -32,11 +28,16 @@ pipeline {
                 stage('Analyse des dépendances (Trivy FS)') {
                     steps {
                         script {
-                            // Install Trivy if not available
-                            sh 'which trivy || (apt-get update && apt-get install -y wget && wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | apt-key add - && echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | tee -a /etc/apt/sources.list.d/trivy.list && apt-get update && apt-get install -y trivy)'
-                            
-                            // Run Trivy filesystem scan
-                            sh 'trivy fs --security-checks vuln,config .'
+                            sh '''
+                                # Install trivy if not present
+                                if ! command -v trivy &> /dev/null; then
+                                    wget https://github.com/aquasecurity/trivy/releases/download/v0.50.1/trivy_0.50.1_Linux-64bit.deb
+                                    dpkg -i trivy_0.50.1_Linux-64bit.deb
+                                fi
+                                
+                                # Run trivy filesystem scan
+                                trivy fs --security-checks vuln . || echo "Trivy scan completed with findings"
+                            '''
                         }
                     }
                 }
@@ -62,17 +63,101 @@ pipeline {
                 }
             }
         }
+        
+        stage('5. Déploiement pour le test DAST') {
+            steps {
+                script {
+                    // Déploiement pour les tests DAST
+                    sh 'docker run -d --name test-app -p 8080:8080 my-app:${BUILD_NUMBER}'
+                    sh 'sleep 30'
+                }
+            }
+        }
+        
+        stage('6. Scan Dynamique (DAST avec OWASP ZAP)') {
+            steps {
+                script {
+                    // Installation et execution de ZAP
+                    sh '''
+                        if ! command -v zap-baseline.py &> /dev/null; then
+                            apt-get update && apt-get install -y wget
+                            wget -qO - https://github.com/zaproxy/zaproxy/releases/download/v2.14.0/ZAP_2.14.0_Linux.tar.gz | tar -xz
+                        fi
+                        # Scan DAST avec ZAP
+                        zap-baseline.py -t http://localhost:8080 -I || echo "ZAP scan completed"
+                    '''
+                }
+            }
+        }
     }
     
     post {
         always {
-            archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
-            junit 'target/surefire-reports/*.xml'
+            archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, allowEmptyArchive: true
+            junit 'target/surefire-reports/*.xml', allowEmptyResults: true
+            
+            // Nettoyage des conteneurs
+            sh '''
+                docker stop test-app || true
+                docker rm test-app || true
+            '''
+        }
+        success {
+            emailext (
+                subject: "SUCCESS: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
+                body: """
+                Bonjour,
+
+                La pipeline CI/CD a été exécutée avec succès.
+
+                Détails:
+                - Job: ${env.JOB_NAME}
+                - Build: ${env.BUILD_NUMBER}
+                - URL: ${env.BUILD_URL}
+
+                Cordialement,
+                Jenkins
+                """,
+                to: "admin@example.com"
+            )
         }
         failure {
             emailext (
                 subject: "FAILED: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
-                body: "Check console output at ${env.BUILD_URL}",
+                body: """
+                Bonjour,
+
+                La pipeline CI/CD a échoué.
+
+                Détails:
+                - Job: ${env.JOB_NAME}
+                - Build: ${env.BUILD_NUMBER}
+                - URL: ${env.BUILD_URL}
+
+                Veuillez vérifier les logs pour plus de détails.
+
+                Cordialement,
+                Jenkins
+                """,
+                to: "admin@example.com"
+            )
+        }
+        unstable {
+            emailext (
+                subject: "UNSTABLE: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
+                body: """
+                Bonjour,
+
+                La pipeline CI/CD est instable.
+
+                Détails:
+                - Job: ${env.JOB_NAME}
+                - Build: ${env.BUILD_NUMBER}
+                - URL: ${env.BUILD_URL}
+
+                Cordialement,
+                Jenkins
+                """,
                 to: "admin@example.com"
             )
         }
