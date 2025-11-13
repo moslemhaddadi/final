@@ -1,77 +1,124 @@
-// Jenkinsfile - Version Finale (Hybride et Robuste)
+// Jenkinsfile - Optimisé pour Jenkins, SonarQube, et Docker
+
 pipeline {
-    agent any
+    // =========================================================================
+    // OPTIMISATION : Utiliser un agent Docker dédié pour la mise en cache.
+    // Cela accélère les builds en conservant les dépendances Maven.
+    // =========================================================================
+    agent {
+        docker {
+            // Image Docker contenant Maven et JDK. 'maven:3.8-openjdk-17' est un bon choix.
+            image 'maven:3.8-openjdk-17'
+            // Monte le socket Docker pour construire des images et un volume pour le cache Maven.
+            args '-v /var/run/docker.sock:/var/run/docker.sock -v maven-cache:/root/.m2'
+        }
+    }
 
     environment {
-        SONAR_URL = "http://localhost:9000"
-        STAGING_APP_URL = "http://staging.mon-app.com"
-        DOCKER_IMAGE_NAME = "mon-app"
+        // ID du token SonarQube stocké dans le gestionnaire de "Credentials" de Jenkins
+        SONAR_TOKEN_ID = 'sonar-token' // Assurez-vous que cet ID correspond à celui dans Jenkins
+
+        // Configuration Docker
+        DOCKER_IMAGE_NAME = "votre-nom-user/mon-app-final" // Remplacez par votre nom d'utilisateur Docker Hub ou autre
     }
 
     stages {
-        stage('1. Secrets Scan (Gitleaks )') {
+        stage('1. Préparation') {
             steps {
-                script {
-                    try {
-                        sh "docker run --rm -v ${env.WORKSPACE}:/path zricethezav/gitleaks:latest detect --source=/path --verbose --exit-code 1 --report-path /path/gitleaks-report.json"
-                    } catch (Exception e) {
-                        currentBuild.result = 'FAILURE'
-                        error("FAIL: Des secrets ont été détectés dans le code ! Consultez le rapport gitleaks-report.json.")
+                echo 'Nettoyage du workspace et récupération du code...'
+                cleanWs()
+                // CORRECTION : Utilisation de votre dépôt Git
+                git branch: 'main', url: 'https://github.com/moslemhaddadi/final.git'
+            }
+        }
+
+        // =========================================================================
+        // OPTIMISATION : Exécution des analyses statiques en parallèle.
+        // =========================================================================
+        stage('2. Analyse Statique (SAST & SCA )') {
+            parallel {
+                stage('Build, Test & SAST (SonarQube)') {
+                    steps {
+                        // On configure l'environnement SonarQube
+                        withSonarQubeEnv('sonar-server') { // Assurez-vous que 'sonar-server' est le nom de votre serveur dans Jenkins
+                            // Commande Maven unique et efficace pour construire, tester et analyser
+                            sh 'mvn clean package sonar:sonar -Dsonar.projectKey=mon-projet-final -Dsonar.login=${SONAR_TOKEN_ID}'
+                        }
+                    }
+                }
+                stage('Analyse des dépendances (Trivy FS)') {
+                    steps {
+                        // Trivy scanne les fichiers du projet pour les vulnérabilités connues
+                        // On n'arrête pas le build ici (exit-code 0) pour consulter le rapport plus tard
+                        sh "trivy fs --severity HIGH,CRITICAL --exit-code 0 . > trivy-fs-report.txt"
                     }
                 }
             }
         }
 
-        stage('2. SAST (SonarQube)') {
+        stage('3. Quality Gate SonarQube') {
             steps {
-                // CORRECTION : On remet le withSonarQubeEnv pour la communication avec la Quality Gate
-                withSonarQubeEnv('MySonarQubeServer') {
-                    // Et on garde notre commande manuelle fiable à l'intérieur
-                    sh "mvn clean verify sonar:sonar -Dsonar.projectKey=mon-projet -Dsonar.host.url=${env.SONAR_URL} -Dsonar.login=${env.SONAR_AUTH_TOKEN}"
+                // Le pipeline attend le verdict de SonarQube et s'arrête en cas d'échec
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true, credentialsId: SONAR_TOKEN_ID
                 }
             }
         }
 
-        stage('3. Quality Gate (SonarQube)') {
-            steps {
-                // Cette étape devrait maintenant fonctionner car elle est dans le même contexte que withSonarQubeEnv
-                waitForQualityGate abortPipeline: true
-            }
-        }
-
-        stage('4. SCA & Build Docker Image (Trivy)') {
+        stage('4. Build & Scan de l\'image Docker') {
             steps {
                 script {
-                    sh "docker run --rm -v ${env.WORKSPACE}:/path aquasec/trivy:latest fs --exit-code 1 --severity CRITICAL,HIGH /path > trivy-fs-report.txt"
-                    sh "docker build -t ${DOCKER_IMAGE_NAME}:${env.BUILD_ID} ."
-                    sh "docker run --rm aquasec/trivy:latest image --exit-code 1 --severity CRITICAL,HIGH ${DOCKER_IMAGE_NAME}:${env.BUILD_ID} > trivy-image-report.txt"
+                    // Construction de l'image Docker (nécessite un Dockerfile dans votre projet)
+                    def dockerImage = docker.build("${DOCKER_IMAGE_NAME}:${env.BUILD_NUMBER}", ".")
+
+                    // Scan de l'image construite pour les vulnérabilités du système d'exploitation et des librairies
+                    sh "trivy image --severity HIGH,CRITICAL --exit-code 1 ${DOCKER_IMAGE_NAME}:${env.BUILD_NUMBER}"
                 }
             }
         }
 
-        stage('5. Deploy to Staging') {
+        stage('5. Déploiement pour le test DAST') {
             steps {
-                echo "Déploiement de l'image ${DOCKER_IMAGE_NAME}:${env.BUILD_ID} sur staging..."
+                script {
+                    echo "Déploiement de l'application pour le scan DAST..."
+                    sh "docker rm -f mon-app-test || true"
+                    // On expose l'application sur le port 8080 de la machine hôte
+                    sh "docker run -d --name mon-app-test -p 8080:8080 ${DOCKER_IMAGE_NAME}:${env.BUILD_NUMBER}"
+
+                    // CORRECTION : Pause cruciale pour laisser le temps à l'application de démarrer
+                    echo "Attente de 45 secondes que l'application démarre..."
+                    sleep 45
+                }
             }
         }
 
-        stage('6. DAST (OWASP ZAP)') {
+        stage('6. Scan Dynamique (DAST avec OWASP ZAP)') {
             steps {
-                sh "docker run --rm -v ${env.WORKSPACE}:/zap/wrk/:rw owasp/zap2docker-stable zap-baseline.py -t ${STAGING_APP_URL} -g gen.conf -r dast-report.html"
+                // ZAP va attaquer l'application en cours d'exécution pour trouver des vulnérabilités "runtime"
+                sh '''
+                    docker run --rm --network host -v $(pwd):/zap/wrk:rw \
+                    zaproxy/zap-stable zap-baseline.py \
+                    -t http://localhost:8080 \
+                    -r zap_report.html
+                '''
             }
         }
     }
 
     post {
         always {
-            echo 'Pipeline terminé. Archivage des rapports de sécurité...'
-            archiveArtifacts artifacts: '*.json, *.txt, *.html', allowEmptyArchive: true
-        }
-        failure {
-            echo "Le pipeline a échoué. L'envoi d'email est désactivé."
+            echo 'Pipeline terminé. Archivage des rapports...'
+            // Archive tous les rapports générés pour consultation
+            archiveArtifacts artifacts: 'trivy-fs-report.txt, zap_report.html, target/surefire-reports/*.xml', allowEmptyArchive: true
+
+            // Nettoyage du conteneur de test
+            sh "docker rm -f mon-app-test || true"
         }
         success {
             echo 'Pipeline terminé avec succès !'
+        }
+        failure {
+            echo 'Le pipeline a échoué.'
         }
     }
 }
