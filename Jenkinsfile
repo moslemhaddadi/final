@@ -2,7 +2,6 @@ pipeline {
     agent any
 
     environment {
-        SEMGREP_HOME = '/vagrant/.semgrep'
         REPORT_DIR   = '/vagrant/reports'
         PATH         = "$HOME/.local/bin:$PATH" // Assure que semgrep est trouvé
     }
