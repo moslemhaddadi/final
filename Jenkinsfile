@@ -1,11 +1,10 @@
-// Jenkinsfile - VERSION CORRIGÉE AVEC LE BON ID DE CREDENTIAL
+// Jenkinsfile - VERSION CORRIGÉE (sans les blocs 'node' dans 'post')
 pipeline {
     agent any
 
     environment {
         SONAR_PROJECT_KEY = "mon-projet-devops"
         SONAR_HOST_URL = "http://localhost:9000"
-        // Utilisation de l'ID de credential correct : 'sonarqube-auth-token'
         SONAR_LOGIN = credentials('sonarqube-auth-token' ) 
     }
 
@@ -74,21 +73,17 @@ pipeline {
     }
 
     post {
+        // Le bloc 'node' a été retiré. Ces étapes s'exécuteront
+        // dans le contexte de l'agent défini en haut du pipeline.
         always {
-            node {
-                echo 'Pipeline terminé.'
-                cleanWs( )
-            }
+            echo 'Pipeline terminé.'
+            cleanWs( )
         }
         success {
-            node {
-                echo '>>> Le pipeline a réussi toutes les étapes ! <<<'
-            }
+            echo '>>> Le pipeline a réussi toutes les étapes ! <<<'
         }
         failure {
-            node {
-                echo "Le pipeline a échoué à une des étapes."
-            }
+            echo "Le pipeline a échoué à une des étapes."
         }
     }
 }
