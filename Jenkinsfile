@@ -4,12 +4,6 @@ pipeline {
     // un agent spécifique (ex: avec un label 'docker') est souvent nécessaire.
     agent any
 
-    // Définition des outils qui seront utilisés dans le pipeline.
-    // Assurez-vous que 'M3' et 'sonar' sont bien configurés dans "Global Tool Configuration" de Jenkins.
-    tools {
-        maven 'M3' // 'M3' est un exemple de nom pour votre configuration Maven
-        jdk 'jdk11' // Assurez-vous d'avoir un JDK configuré avec ce nom
-    }
 
     // Variables d'environnement pour le pipeline
     environment {
