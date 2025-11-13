@@ -33,7 +33,7 @@ pipeline {
                 dir("${WORKSPACE}") {
                     sh '''
                     echo "Vulnerability Scan stage placeholder"
-                    # Exemple : trivy fs --exit-code 1 --no-progress --format json -o $REPORT_DIR/trivy-report.json .
+                    # Exemple1 : trivy fs --exit-code 1 --no-progress --format json -o $REPORT_DIR/trivy-report.json .
                     '''
                 }
             }
