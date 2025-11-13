@@ -1,83 +1,77 @@
-// Jenkinsfile - VERSION FINALE ET DÉBOGUÉE
+// Jenkinsfile - Version Finale (Hybride et Robuste)
 pipeline {
     agent any
 
     environment {
-        // Clé de projet unique pour SonarQube. Utiliser le nom du job est une bonne pratique.
-        SONAR_PROJECT_KEY = "${env.JOB_NAME}" 
+        SONAR_URL = "http://localhost:9000"
+        STAGING_APP_URL = "http://staging.mon-app.com"
+        DOCKER_IMAGE_NAME = "mon-app"
     }
 
     stages {
-        stage("1. SAST Analysis & Quality Gate") {
+        stage('1. Secrets Scan (Gitleaks )') {
             steps {
-                // !!! ATTENTION : REMPLACER 'simple-app' par le nom exact de votre sous-dossier si nécessaire !!!
-                dir('simple-app') { 
-                    withSonarQubeEnv('MySonarQubeServer') {
-                        echo "Lancement de l'analyse SAST avec SonarQube..."
-                        sh "mvn clean verify sonar:sonar -Dsonar.projectKey=${env.SONAR_PROJECT_KEY}"
-
-                        echo "Vérification du Quality Gate de SonarQube..."
-                        timeout(time: 5, unit: 'MINUTES') {
-                            waitForQualityGate abortPipeline: true
-                        }
+                script {
+                    try {
+                        sh "docker run --rm -v ${env.WORKSPACE}:/path zricethezav/gitleaks:latest detect --source=/path --verbose --exit-code 1 --report-path /path/gitleaks-report.json"
+                    } catch (Exception e) {
+                        currentBuild.result = 'FAILURE'
+                        error("FAIL: Des secrets ont été détectés dans le code ! Consultez le rapport gitleaks-report.json.")
                     }
                 }
             }
         }
-        
-        stage("2. SCA - Trivy Scan") {
+
+        stage('2. SAST (SonarQube)') {
             steps {
-                // !!! ATTENTION : REMPLACER 'simple-app' par le nom exact de votre sous-dossier si nécessaire !!!
-                dir('simple-app') {
-                    echo "Lancement de l'analyse des dépendances (SCA) avec Trivy..."
-                    // Utilisation de $(pwd) pour un montage de volume plus fiable
-                    sh "docker run --rm -v \$(pwd):/path aquasec/trivy:latest fs --format table -o trivy-fs-report.html /path"
-                    archiveArtifacts artifacts: 'trivy-fs-report.html', allowEmptyArchive: true
-                }
-            }
-        }
-        
-        stage("3. Build Docker Image") {
-            steps {
-                // !!! ATTENTION : REMPLACER 'simple-app' par le nom exact de votre sous-dossier si nécessaire !!!
-                dir('simple-app') {
-                    echo "Construction de l'image Docker de l'application..."
-                    // Le build s'exécute dans le répertoire simple-app
-                    sh "docker build -t simple-app:latest ."
+                // CORRECTION : On remet le withSonarQubeEnv pour la communication avec la Quality Gate
+                withSonarQubeEnv('MySonarQubeServer') {
+                    // Et on garde notre commande manuelle fiable à l'intérieur
+                    sh "mvn clean verify sonar:sonar -Dsonar.projectKey=mon-projet -Dsonar.host.url=${env.SONAR_URL} -Dsonar.login=${env.SONAR_AUTH_TOKEN}"
                 }
             }
         }
 
-        stage("4. DAST with OWASP ZAP (Simulation)") {
+        stage('3. Quality Gate (SonarQube)') {
             steps {
-                echo "Lancement de l'analyse de sécurité dynamique (DAST)..."
-                sh """
-                    echo "Démarrage de l'application pour le scan DAST..."
-                    docker run -d --name app-for-dast simple-app:latest
-                    
-                    echo "Lancement du scan ZAP..."
-                    docker run --rm -v \$(pwd):/zap/wrk/:rw --network host owasp/zap2docker-stable zap-baseline.py \
-                        -t http://127.0.0.1:8080 -g gen.conf -r zap-report.html
-                    
-                    echo "Arrêt du conteneur de l'application..."
-                    docker stop app-for-dast
-                    docker rm app-for-dast
-                """
-                archiveArtifacts artifacts: 'zap-report.html', allowEmptyArchive: true
+                // Cette étape devrait maintenant fonctionner car elle est dans le même contexte que withSonarQubeEnv
+                waitForQualityGate abortPipeline: true
+            }
+        }
+
+        stage('4. SCA & Build Docker Image (Trivy)') {
+            steps {
+                script {
+                    sh "docker run --rm -v ${env.WORKSPACE}:/path aquasec/trivy:latest fs --exit-code 1 --severity CRITICAL,HIGH /path > trivy-fs-report.txt"
+                    sh "docker build -t ${DOCKER_IMAGE_NAME}:${env.BUILD_ID} ."
+                    sh "docker run --rm aquasec/trivy:latest image --exit-code 1 --severity CRITICAL,HIGH ${DOCKER_IMAGE_NAME}:${env.BUILD_ID} > trivy-image-report.txt"
+                }
+            }
+        }
+
+        stage('5. Deploy to Staging') {
+            steps {
+                echo "Déploiement de l'image ${DOCKER_IMAGE_NAME}:${env.BUILD_ID} sur staging..."
+            }
+        }
+
+        stage('6. DAST (OWASP ZAP)') {
+            steps {
+                sh "docker run --rm -v ${env.WORKSPACE}:/zap/wrk/:rw owasp/zap2docker-stable zap-baseline.py -t ${STAGING_APP_URL} -g gen.conf -r dast-report.html"
             }
         }
     }
 
     post {
         always {
-            echo 'Pipeline terminé.'
-            cleanWs( )
-        }
-        success {
-            echo '>>> Le pipeline a réussi toutes les étapes ! <<<'
+            echo 'Pipeline terminé. Archivage des rapports de sécurité...'
+            archiveArtifacts artifacts: '*.json, *.txt, *.html', allowEmptyArchive: true
         }
         failure {
-            echo "Le pipeline a échoué à une des étapes."
+            echo "Le pipeline a échoué. L'envoi d'email est désactivé."
+        }
+        success {
+            echo 'Pipeline terminé avec succès !'
         }
     }
 }
