@@ -1,25 +1,30 @@
-// Jenkinsfile - VERSION FINALE CORRIGÉE
+// Jenkinsfile - VERSION DÉFINITIVE ET NETTOYÉE
 pipeline {
     agent any
 
+    // On redéfinit la clé du projet ici pour qu'elle soit disponible dans tout le pipeline.
+    environment {
+        SONAR_PROJECT_KEY = "fromgitpipe-project" // Nom unique pour le projet SonarQube
+    }
+
     stages {
-        stage("1. Checkout Code from GitHub") {
+        // Cette étape est maintenant propre et ne fait plus de checkout redondant.
+        stage("1. Initialisation") {
             steps {
-                echo "Récupération du code depuis GitHub..."
-                git url: "https://github.com/moslemhaddadi/DEVOPS.git", branch: "main"
+                echo "Workspace initialisé avec le code de la branche ${env.BRANCH_NAME}."
             }
         }
 
-        stage("2. SAST Analysis & Quality Gate" ) {
+        stage("2. SAST Analysis & Quality Gate") {
             steps {
                 withSonarQubeEnv('MySonarQubeServer') {
-                    // 1. Lancer l'analyse en forçant la clé de projet attendue par Jenkins
+                    // 1. Lancer l'analyse en forçant la clé de projet définie ci-dessus.
                     echo "Lancement de l'analyse SAST avec SonarQube..."
                     sh "mvn clean verify sonar:sonar -Dsonar.projectKey=${env.SONAR_PROJECT_KEY}"
 
-                    // 2. Attendre le Quality Gate
+                    // 2. Attendre le Quality Gate.
                     echo "Vérification du Quality Gate de SonarQube..."
-                    timeout(time: 2, unit: 'MINUTES') {
+                    timeout(time: 5, unit: 'MINUTES') {
                         waitForQualityGate abortPipeline: true
                     }
                 }
