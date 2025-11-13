@@ -11,8 +11,7 @@ pipeline {
 
     // CORRECTION : Restauration du bloc environment
     environment {
-        SONAR_TOKEN_ID = 'sonar-token'
-        DOCKER_IMAGE_NAME = "votre-nom-user/mon-app-final"
+        SONAR_TOKEN_ID = 'sonarqube-auth-token'
     }
 
     stages {
@@ -27,7 +26,7 @@ pipeline {
             parallel {
                 stage('Build, Test & SAST (SonarQube)') {
                     steps {
-                        withSonarQubeEnv('sonar-server') {
+                        withSonarQubeEnv('MySonarQubeServer') {
                             sh 'mvn clean package sonar:sonar -Dsonar.projectKey=mon-projet-final -Dsonar.login=${SONAR_TOKEN_ID}'
                         }
                     }
